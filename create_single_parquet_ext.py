@@ -132,7 +132,7 @@ def main():
         '--chrom',
         type=str,
         default=None,
-        help="Optional chromosome to keep (e.g. 22, X, chr22)."
+        help="Optional chromosome to keep (e.g. 22, X, chr22). Default: 1-22 (autosomes)."
     )
     parser.add_argument(
         '--pos_start',
@@ -149,6 +149,7 @@ def main():
     args = parser.parse_args()
 
     valid_chroms = {str(i) for i in range(1, 23)} | {'X'}
+    autosomes = {str(i) for i in range(1, 23)}
     selected_chrom = None
     if args.chrom is not None:
         selected_chrom = args.chrom.replace('chr', '')
@@ -165,7 +166,7 @@ def main():
     if args.pos_start is not None and args.pos_end is not None and args.pos_end < args.pos_start:
         parser.error("--pos_end must be >= --pos_start.")
 
-    allowed_chroms = {selected_chrom} if selected_chrom is not None else valid_chroms
+    allowed_chroms = {selected_chrom} if selected_chrom is not None else autosomes
 
     bw_files = glob.glob(os.path.join(args.input_dir, '*.bw')) + \
                glob.glob(os.path.join(args.input_dir, '*.bigwig'))
@@ -199,7 +200,7 @@ def main():
     print("\nAll BigWig files processed. Merging and writing final Parquet file...")
 
     all_parts_path = os.path.join(temp_dir, '*.parquet')
-    chromosomes = [selected_chrom] if selected_chrom is not None else ([str(i) for i in range(1, 23)] + ['X'])
+    chromosomes = [selected_chrom] if selected_chrom is not None else [str(i) for i in range(1, 23)]
 
     try:
         con = duckdb.connect()

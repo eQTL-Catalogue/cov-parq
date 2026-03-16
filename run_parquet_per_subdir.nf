@@ -29,13 +29,17 @@ def buildOutputName(String subdir) {
 
 process RUN_PARQUET {
     tag "$subdir"
+    publishDir "${params.output_base}/${params.study}", mode: 'copy'
 
     input:
     tuple val(subdir), path(bigwig_dir)
 
+    output:
+    path("*.parquet")
+
     script:
     def outputFileName = buildOutputName(subdir)
-    def outputPath = "${params.output_base}/${params.study}/${outputFileName}"
+    def publishDestination = "${params.output_base}/${params.study}"
 
     def regionArgs = []
     if (params.chrom) {
@@ -51,7 +55,8 @@ process RUN_PARQUET {
     """
     echo "Processing subdir: ${subdir}"
     echo "Input: ${bigwig_dir}"
-    echo "Output: ${outputPath}"
+    echo "Local output file: ${outputFileName}"
+    echo "Publish destination: ${publishDestination}"
     echo "Python: ${params.python_bin}"
 
     if [ ! -x "${params.python_bin}" ]; then
@@ -62,7 +67,7 @@ process RUN_PARQUET {
 
     "${params.python_bin}" "${params.script_path}" \
       "${bigwig_dir}" \
-      "${outputPath}" \
+      "${outputFileName}" \
       --num_processes ${params.num_processes} \
       ${regionArgs.join(' ')}
     """

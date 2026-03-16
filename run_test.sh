@@ -12,4 +12,5 @@ module load squashfs/4.4
 
 nextflow run run_parquet_per_subdir.nf -profile tartu_hpc -resume \
   --study MacroMap \
-  --input_base /gpfs/helios/home/kerimov/alasoo_lab/cov-parq
+  --input_base /gpfs/helios/home/kerimov/alasoo_lab/cov-parq \
+  --output_base /gpfs/helios/home/kerimov/alasoo_lab/cov-parq/test
