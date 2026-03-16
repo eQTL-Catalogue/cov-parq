@@ -13,4 +13,4 @@ module load squashfs/4.4
 nextflow run run_parquet_per_subdir.nf -profile tartu_hpc -resume \
   --study MacroMap \
   --input_base /gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq \
-  --output_base /gpfs/helios/projects/eQTLCatalogue/coverage_parquet/MacroMap
+  --output_base /gpfs/helios/projects/eQTLCatalogue/coverage_parquet/
