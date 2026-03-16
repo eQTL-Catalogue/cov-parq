@@ -1,0 +1,17 @@
+.nextflow/
+.nextflow.log*
+work/
+
+# Local copied test/input data
+MacroMap/
+
+# SLURM outputs
+slurm-*.out
+slurm-*.err
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
