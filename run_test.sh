@@ -8,7 +8,6 @@
 
 module load any/jdk/1.8.0_265
 module load nextflow
-module load py-pyarrow/10.0.1
 module load squashfs/4.4
 
 nextflow run run_parquet_per_subdir.nf -profile tartu_hpc -resume \

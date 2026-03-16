@@ -1,12 +1,14 @@
 nextflow.enable.dsl = 2
 
 params.input_base = params.input_base ?: '/gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq'
-params.output_base = params.output_base ?: '/gpfs/helios/projects/eQTLCatalogue/coverage_parquet'
-params.study = params.study ?: 'MacroMap'
-params.chrom = params.chrom ?: '22'
-params.pos_start = params.pos_start ?: 18500000
-params.pos_end = params.pos_end ?: 20000000
+params.output_base = params.containsKey('output_base') ? params.output_base : null
+params.study = params.containsKey('study') ? params.study : null
+params.chrom = params.containsKey('chrom') ? params.chrom : null
+params.pos_start = params.containsKey('pos_start') ? params.pos_start : null
+params.pos_end = params.containsKey('pos_end') ? params.pos_end : null
 params.num_processes = params.num_processes ?: 16
+params.venv_path = params.venv_path ?: "${workflow.projectDir}/.venv"
+params.python_bin = params.python_bin ?: "${params.venv_path}/bin/python"
 params.script_path = params.containsKey('script_path') ? params.script_path : "${workflow.projectDir}/create_single_parquet_ext.py"
 
 def buildOutputName(String subdir) {
@@ -50,8 +52,15 @@ process RUN_PARQUET {
     echo "Processing subdir: ${subdir}"
     echo "Input: ${bigwig_dir}"
     echo "Output: ${outputPath}"
+    echo "Python: ${params.python_bin}"
 
-    python3 "${params.script_path}" \
+    if [ ! -x "${params.python_bin}" ]; then
+      echo "ERROR: local venv python not found or not executable at ${params.python_bin}" >&2
+      echo "Create it with: python3 -m venv ${params.venv_path} && ${params.venv_path}/bin/pip install -r ${workflow.projectDir}/requirements.txt" >&2
+      exit 1
+    fi
+
+    "${params.python_bin}" "${params.script_path}" \
       "${bigwig_dir}" \
       "${outputPath}" \
       --num_processes ${params.num_processes} \
@@ -60,6 +69,14 @@ process RUN_PARQUET {
 }
 
 workflow {
+    if (!params.output_base) {
+        error "Parameter --output_base is required."
+    }
+
+    if (!params.study) {
+        error "Parameter --study is required."
+    }
+
     if ((params.pos_start != null || params.pos_end != null) && !params.chrom) {
         error "Parameters --pos_start and --pos_end require --chrom."
     }
