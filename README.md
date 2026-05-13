@@ -45,11 +45,37 @@ nextflow run run_parquet_per_subdir.nf \
     --output_base <PATH_TO_OUTPUT_DIR>
 ```
 
+For multi-study runs, provide a file instead of `--study`:
+
+```bash
+nextflow run run_parquet_per_subdir.nf \
+    --studies_file <PATH_TO_STUDY_LIST.tsv> \
+    --input_base <PATH_TO_INPUT_DATA> \
+    --output_base <PATH_TO_OUTPUT_DIR>
+```
+
 ### Example
 
 ```bash
 nextflow run run_parquet_per_subdir.nf \
     --study MacroMap \
+    --input_base /gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq \
+    --output_base ./output
+```
+
+Example multi-study list file (`studies.tsv`, one study per row; first column is used):
+
+```text
+MacroMap
+GTEx
+eQTLGen
+```
+
+Example multi-study run:
+
+```bash
+nextflow run run_parquet_per_subdir.nf \
+    --studies_file studies.tsv \
     --input_base /gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq \
     --output_base ./output
 ```
@@ -70,7 +96,8 @@ sbatch run_test.sh
 
 | Parameter | Description | Default |
 | :--- | :--- | :--- |
-| `--study` | **Required**. Name of the study to process. | N/A |
+| `--study` | Name of a single study to process. Mutually exclusive with `--studies_file`. | N/A |
+| `--studies_file` | Path to a text/TSV/CSV file with study names, one per row (first column used). Mutually exclusive with `--study`. Empty lines and `#` comments are ignored. | N/A |
 | `--input_base` | Base directory containing study data. Expects structure: `${input_base}/${study}/*/bigwig` | `/gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq` |
 | `--output_base` | **Required**. Base directory for output Parquet files. | N/A |
 | `--chrom` | Optional. Filter by chromosome (e.g., `22`, `X`). | All autosomes (1-22) + X |

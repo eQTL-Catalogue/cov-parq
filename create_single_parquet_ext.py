@@ -62,48 +62,63 @@ def process_and_save_bigwig(task):
     output_dir = os.path.dirname(output_path)
     os.makedirs(output_dir, exist_ok=True)
 
+    bw = None
     try:
         bw = pyBigWig.open(filepath)
+        if bw is None:
+            raise RuntimeError("pyBigWig.open returned None")
+
+        data_frames = []
+        for chrom_name, _ in bw.chroms().items():
+            clean_chrom = chrom_name.replace('chr', '')
+            if clean_chrom in allowed_chroms:
+                intervals = bw.intervals(chrom_name)
+                if intervals:
+                    df = pd.DataFrame(intervals, columns=['start', 'end', 'score'])
+                    # BigWig intervals are 0-based, half-open: [start, end).
+                    # Convert to 1-based, inclusive coordinates (GRanges-style): [start+1, end].
+                    df['start'] = df['start'] + 1
+                    df = df[df['end'] >= df['start']]
+
+                    if pos_start is not None:
+                        df = df[df['end'] >= pos_start]
+                    if pos_end is not None:
+                        df = df[df['start'] <= pos_end]
+
+                    if df.empty:
+                        continue
+
+                    df['seqnames'] = clean_chrom
+                    data_frames.append(df)
+
+        rows_written = 0
+        if data_frames:
+            full_df = pd.concat(data_frames, ignore_index=True)
+            sample_id = os.path.basename(filepath).split('.')[0]
+            full_df['sample_id'] = sample_id
+            full_df['strand'] = '*'
+
+            # Reorder columns and ensure schema is correct before saving
+            full_df = full_df[['seqnames', 'start', 'end', 'strand', 'score', 'sample_id']]
+            rows_written = len(full_df)
+
+            table = pa.Table.from_pandas(full_df, schema=TARGET_SCHEMA, preserve_index=False)
+            pq.write_table(table, output_path)
+
+        return {
+            'filepath': filepath,
+            'ok': True,
+            'rows_written': rows_written,
+        }
     except Exception as e:
-        print(f"Error opening {filepath}: {e}", file=sys.stderr)
-        return
-
-    data_frames = []
-    for chrom_name, _ in bw.chroms().items():
-        clean_chrom = chrom_name.replace('chr', '')
-        if clean_chrom in allowed_chroms:
-            intervals = bw.intervals(chrom_name)
-            if intervals:
-                df = pd.DataFrame(intervals, columns=['start', 'end', 'score'])
-                # BigWig intervals are 0-based, half-open: [start, end).
-                # Convert to 1-based, inclusive coordinates (GRanges-style): [start+1, end].
-                df['start'] = df['start'] + 1
-                df = df[df['end'] >= df['start']]
-
-                if pos_start is not None:
-                    df = df[df['end'] >= pos_start]
-                if pos_end is not None:
-                    df = df[df['start'] <= pos_end]
-
-                if df.empty:
-                    continue
-
-                df['seqnames'] = clean_chrom
-                data_frames.append(df)
-
-    if data_frames:
-        full_df = pd.concat(data_frames, ignore_index=True)
-        sample_id = os.path.basename(filepath).split('.')[0]
-        full_df['sample_id'] = sample_id
-        full_df['strand'] = '*'
-
-        # Reorder columns and ensure schema is correct before saving
-        full_df = full_df[['seqnames', 'start', 'end', 'strand', 'score', 'sample_id']]
-
-        table = pa.Table.from_pandas(full_df, schema=TARGET_SCHEMA, preserve_index=False)
-        pq.write_table(table, output_path)
-
-    bw.close()
+        return {
+            'filepath': filepath,
+            'ok': False,
+            'error': str(e),
+        }
+    finally:
+        if bw is not None:
+            bw.close()
 
 
 def main():
@@ -194,40 +209,66 @@ def main():
         for i, bw_file in enumerate(bw_files)
     ]
 
-    with Pool(args.num_processes) as pool:
-        list(tqdm(pool.imap_unordered(process_and_save_bigwig, tasks), total=len(tasks), desc="[Stage 1/2] Processing BigWig files"))
-
-    print("\nAll BigWig files processed. Merging and writing final Parquet file...")
-
-    all_parts_path = os.path.join(temp_dir, '*.parquet')
-    chromosomes = [selected_chrom] if selected_chrom is not None else [str(i) for i in range(1, 23)]
-
+    con = None
     try:
+        with Pool(args.num_processes) as pool:
+            results = list(tqdm(
+                pool.imap_unordered(process_and_save_bigwig, tasks),
+                total=len(tasks),
+                desc="[Stage 1/2] Processing BigWig files",
+            ))
+
+        failures = [result for result in results if not result['ok']]
+        if failures:
+            print(
+                f"\nError: {len(failures)} BigWig file(s) could not be opened or processed.",
+                file=sys.stderr,
+            )
+            for failure in sorted(failures, key=lambda item: item['filepath']):
+                print(f"  {failure['filepath']}: {failure['error']}", file=sys.stderr)
+            print("\nAborting without writing final Parquet output.", file=sys.stderr)
+            sys.exit(1)
+
+        no_data = [result for result in results if result['rows_written'] == 0]
+        if no_data:
+            print(
+                f"Warning: {len(no_data)} BigWig file(s) had no intervals after filtering.",
+                file=sys.stderr,
+            )
+
+        print("\nAll BigWig files processed. Merging and writing final Parquet file...")
+
+        all_parts_path = os.path.join(temp_dir, '*.parquet')
+        chromosomes = [selected_chrom] if selected_chrom is not None else [str(i) for i in range(1, 23)]
+
         con = duckdb.connect()
-        print("[Stage 2/2] Writing final dataset by chromosome...")
+        try:
+            print("[Stage 2/2] Writing final dataset by chromosome...")
 
-        with pq.ParquetWriter(args.output_path, TARGET_SCHEMA) as writer:
-            for chrom in tqdm(chromosomes, desc="Processing chromosomes"):
-                where_clauses = [f"seqnames = '{chrom}'"]
-                if args.pos_start is not None:
-                    where_clauses.append(f"\"end\" >= {args.pos_start}")
-                if args.pos_end is not None:
-                    where_clauses.append(f"start <= {args.pos_end}")
+            with pq.ParquetWriter(args.output_path, TARGET_SCHEMA) as writer:
+                for chrom in tqdm(chromosomes, desc="Processing chromosomes"):
+                    where_clauses = [f"seqnames = '{chrom}'"]
+                    if args.pos_start is not None:
+                        where_clauses.append(f"\"end\" >= {args.pos_start}")
+                    if args.pos_end is not None:
+                        where_clauses.append(f"start <= {args.pos_end}")
 
-                query = f"""
-                    SELECT seqnames, start, "end", strand, score, sample_id
-                    FROM read_parquet('{all_parts_path}')
-                    WHERE {' AND '.join(where_clauses)}
-                    ORDER BY start
-                """
-                table = con.execute(query).fetch_arrow_table()
+                    query = f"""
+                        SELECT seqnames, start, "end", strand, score, sample_id
+                        FROM read_parquet('{all_parts_path}')
+                        WHERE {' AND '.join(where_clauses)}
+                        ORDER BY start
+                    """
+                    table = con.execute(query).fetch_arrow_table()
 
-                if table.num_rows > 0:
-                    writer.write_table(table)
+                    if table.num_rows > 0:
+                        writer.write_table(table)
+        finally:
+            con.close()
     finally:
-        con.close()
-        print(f"Cleaning up temporary directory '{temp_dir}'...")
-        shutil.rmtree(temp_dir)
+        if os.path.exists(temp_dir):
+            print(f"Cleaning up temporary directory '{temp_dir}'...")
+            shutil.rmtree(temp_dir)
 
     print("\nDone.")
     print(f"Successfully created single Parquet file at: {args.output_path}")
