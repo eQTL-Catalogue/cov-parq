@@ -1,0 +1,3 @@
+study_name	qtl_group	bigwig_dir
+ROSMAP	brain_naive	/gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq/ROSMAP/brain_naive/bigwig
+Walker_2019	Neocortex	/gpfs/helios/projects/eQTLCatalogue/r8_run_folders/rnaseq/Walker_2019/Neocortex/bigwig
